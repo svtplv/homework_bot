@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from sys import stdout
 
 from http import HTTPStatus
 import requests
@@ -25,15 +26,6 @@ RETRY_PERIOD = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
 
-# EXPECTED_KEYS = (
-#     'id',
-#     'status',
-#     'homework_name',
-#     'reviewer_comment',
-#     'date_updated',
-#     'lesson_name'
-# )
-
 
 HOMEWORK_VERDICTS = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
@@ -44,23 +36,13 @@ HOMEWORK_VERDICTS = {
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG)
+    level=logging.DEBUG,
+    stream=stdout
+)
 
 
 def check_tokens():
     """Проверяет доступность обязательных переменных окружения."""
-    # if PRACTICUM_TOKEN is None:
-    #     logging.critical('Отсутствует переменная окружения PRACTICUM_TOKEN')
-    # if TELEGRAM_TOKEN is None:
-    #     logging.critical('Отсутствует переменная окружения TELEGRAM_TOKEN')
-    # if TELEGRAM_CHAT_ID is None:
-    #     logging.critical('Отсутствует переменная окружения TELEGRAM_CHAT_ID')
-    # if any(
-    #     token is None for token in (
-    #         PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
-    #     )
-    # ):
-    #     raise EnvVariableMissing
     TOKENS = dict(
         PRACTICUM_TOKEN=PRACTICUM_TOKEN,
         TELEGRAM_TOKEN=TELEGRAM_TOKEN,
