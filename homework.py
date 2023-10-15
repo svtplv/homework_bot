@@ -1,19 +1,15 @@
 import logging
 import os
 import time
+from http import HTTPStatus
 from sys import stdout
 
-from http import HTTPStatus
 import requests
-from dotenv import load_dotenv
 import telegram
+from dotenv import load_dotenv
 
-from exceptions import (
-    ApiNotAvailable,
-    EnvVariableMissing,
-    HomeWorkVerdictError,
-    ResponseValidationError
-)
+from exceptions import (ApiNotAvailable, EnvVariableMissing,
+                        HomeWorkVerdictError, ResponseValidationError)
 
 load_dotenv()
 
