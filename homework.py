@@ -164,6 +164,8 @@ def main():
             if homework:
                 message = parse_status(homework[0])
                 send_message(bot, message)
+            else:
+                logging.debug('Статус домашнего задания не')
             timestamp = int(time.time())
         except telegram.error.TelegramError as error:
             logging.error(f'Ошибка при попытке отправить сообщение - {error}')
