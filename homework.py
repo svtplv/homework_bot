@@ -179,8 +179,7 @@ def main():
                     previous_message = public_message
                 except telegram.error.TelegramError:
                     logging.error(
-                        f'Ошибка при попытке отправить сообщение - {error}',
-                        exc_info=True
+                        f'Ошибка при попытке отправить сообщение - {error}'
                     )
         finally:
             time.sleep(RETRY_PERIOD)
