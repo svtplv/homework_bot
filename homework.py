@@ -1,4 +1,5 @@
 import logging
+import logging.config
 import os
 import time
 from http import HTTPStatus
@@ -30,13 +31,6 @@ HOMEWORK_VERDICTS = {
 }
 
 
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    level=logging.DEBUG,
-    stream=stdout
-)
-
-
 def check_tokens():
     """Проверяет доступность обязательных переменных окружения."""
     TOKENS = dict(
@@ -44,10 +38,14 @@ def check_tokens():
         TELEGRAM_TOKEN=TELEGRAM_TOKEN,
         TELEGRAM_CHAT_ID=TELEGRAM_CHAT_ID
     )
-    for key, value in TOKENS.items():
-        if value is None:
-            logging.critical(f'Отсутствует переменная окружения {key}')
-            raise EnvVariableMissing
+    missing_tokens = [
+        token for token, value in TOKENS.items() if not value
+    ]
+    if missing_tokens:
+        logging.critical(
+            f'Отсутствует переменные окружения {" ,".join(missing_tokens)}'
+        )
+        raise EnvVariableMissing
 
 
 def send_message(bot, message):
@@ -58,10 +56,11 @@ def send_message(bot, message):
     :param message: Сообщение
 
     """
+    logging.debug('Пытаемся отправить сообщение')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.debug('Сообщение отправлено успешно')
-    except Exception as error:
+    except telegram.TelegramError as error:
         logging.error(f'При отправлении сообщения возникла ошибка {error}')
 
 
@@ -74,6 +73,10 @@ def get_api_answer(timestamp):
     """
     payload = {'from_date': timestamp}
     try:
+        logging.debug(
+            f'Отправляем запрос к API, эндпоинт - {ENDPOINT}, '
+            f'параметры - {payload}'
+        )
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
     except requests.RequestException as error:
         logging.error(f'Ошибка при запросе к основному API: {error}')
@@ -82,6 +85,7 @@ def get_api_answer(timestamp):
             f'API вернуло ответ, отличный от 200. Код {response.status_code}'
         )
         raise ApiNotAvailable
+    logging.debug('Запрос к API: успех')
     return response.json()
 
 
@@ -92,17 +96,26 @@ def check_response(response):
     :param response: Ответ в формате JSON
 
     """
+    logging.debug('Начинаем проверку API на соответствие документации')
+    REQUIRED_KEYS = ('homeworks', 'current_date')
     if not isinstance(response, dict):
-        logging.error('Некорректный тип данных у параметра response.')
-        raise TypeError
-    if 'homeworks' not in response and 'current_time' not in response:
         logging.error(
-            f'Недостает обязательных ключей. Ключи: {response.keys()}'
+            f'Некорректный тип данных у параметра response - {type(response)}.'
         )
+        raise TypeError
+    logging.debug('Проверка типа данных у параметра response: Успех')
+    missing_keys = [
+        key for key in REQUIRED_KEYS if key not in response
+    ]
+    if missing_keys:
+        logging.error(f'Отсутствуют ключи: {", ".join(missing_keys)}')
+        print(response)
         raise ResponseValidationError
+    logging.debug('Проверка ключей в словаре: Успех')
     if not isinstance(response['homeworks'], list):
         logging.error('Некорректный тип данных у словаря Д/З')
         raise TypeError
+    logging.debug('Проверка типа данных по ключу homeworks: Успех')
 
 
 def parse_status(homework):
@@ -112,6 +125,7 @@ def parse_status(homework):
     :param homework: Последняя домашняя работа
 
     """
+    logging.debug('Проверка статуса домашней работы')
     homework_name = homework.get('homework_name')
     if homework_name is None:
         raise KeyError('Отсутствует ключ homework_name')
@@ -119,6 +133,7 @@ def parse_status(homework):
     if homework_status not in HOMEWORK_VERDICTS:
         raise HomeWorkVerdictError
     verdict = HOMEWORK_VERDICTS[homework_status]
+    logging.debug('Статус получен - {verdict}')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -126,10 +141,10 @@ def main():
     """Основная логика работы бота."""
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    timestamp = int(time.time())
     previous_message = None
     while True:
         try:
+            timestamp = int(time.time())
             response = get_api_answer(timestamp)
             check_response(response)
             try:
@@ -146,8 +161,21 @@ def main():
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             logging.error(message)
-        time.sleep(RETRY_PERIOD)
+        finally:
+            time.sleep(RETRY_PERIOD)
 
 
 if __name__ == '__main__':
+    logging.config.dictConfig({
+        'version': 1,
+        'disable_existing_loggers': True
+    })
+    logging.basicConfig(
+        format=(
+            '%(asctime)s - %(levelname)s - '
+            '%(funcName)s:%(lineno)d - %(message)s'
+        ),
+        level=logging.DEBUG,
+        stream=stdout
+    )
     main()
