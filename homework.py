@@ -9,8 +9,7 @@ import requests
 import telegram
 from dotenv import load_dotenv
 
-from exceptions import (ApiNotAvailable, EnvVariableMissing,
-                        HomeWorkVerdictError, ResponseValidationError)
+from exceptions import ApiNotAvailable, EnvVariableMissing
 
 load_dotenv()
 
@@ -56,12 +55,12 @@ def send_message(bot, message):
     :param message: Сообщение
 
     """
-    logging.debug('Пытаемся отправить сообщение')
+    logging.debug('Начинаем отправку сообщения')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.debug('Сообщение отправлено успешно')
-    except telegram.TelegramError as error:
-        logging.error(f'При отправлении сообщения возникла ошибка {error}')
+    except telegram.error.TelegramError:
+        raise
 
 
 def get_api_answer(timestamp):
@@ -74,17 +73,17 @@ def get_api_answer(timestamp):
     payload = {'from_date': timestamp}
     try:
         logging.debug(
-            f'Отправляем запрос к API, эндпоинт - {ENDPOINT}, '
+            f'Начинаем отправку запроса к API, эндпоинт - {ENDPOINT}, '
             f'параметры - {payload}'
         )
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
-    except requests.RequestException as error:
-        logging.error(f'Ошибка при запросе к основному API: {error}')
+    except ConnectionError('Ошибка при запросе к основному API'):
+        raise
     if response.status_code != HTTPStatus.OK:
-        logging.error(
-            f'API вернуло ответ, отличный от 200. Код {response.status_code}'
+        raise ApiNotAvailable(
+            f'API вернуло ответ, отличный от 200. '
+            f'Код {response.status_code}-{response.reason}'
         )
-        raise ApiNotAvailable
     logging.debug('Запрос к API: успех')
     return response.json()
 
@@ -97,25 +96,30 @@ def check_response(response):
 
     """
     logging.debug('Начинаем проверку API на соответствие документации')
+    PUBLIC_ERROR_MESSAGE = 'API не соответствует документации'
     REQUIRED_KEYS = ('homeworks', 'current_date')
     if not isinstance(response, dict):
-        logging.error(
+        raise TypeError(
+            PUBLIC_ERROR_MESSAGE,
             f'Некорректный тип данных у параметра response - {type(response)}.'
         )
-        raise TypeError
     logging.debug('Проверка типа данных у параметра response: Успех')
     missing_keys = [
         key for key in REQUIRED_KEYS if key not in response
     ]
     if missing_keys:
-        logging.error(f'Отсутствуют ключи: {", ".join(missing_keys)}')
-        print(response)
-        raise ResponseValidationError
+        raise KeyError(
+            PUBLIC_ERROR_MESSAGE,
+            f'Отсутствуют ключи: {", ".join(missing_keys)}'
+        )
     logging.debug('Проверка ключей в словаре: Успех')
     if not isinstance(response['homeworks'], list):
-        logging.error('Некорректный тип данных у словаря Д/З')
-        raise TypeError
+        raise TypeError(
+            PUBLIC_ERROR_MESSAGE,
+            f'Некорректный тип данных у словаря Д/З - {response["homeworks"]}'
+        )
     logging.debug('Проверка типа данных по ключу homeworks: Успех')
+    return response['homeworks']
 
 
 def parse_status(homework):
@@ -125,15 +129,25 @@ def parse_status(homework):
     :param homework: Последняя домашняя работа
 
     """
-    logging.debug('Проверка статуса домашней работы')
+    logging.debug('Начинаем проверку статуса домашней работы')
     homework_name = homework.get('homework_name')
     if homework_name is None:
-        raise KeyError('Отсутствует ключ homework_name')
+        raise KeyError(
+            'Отсутствует название домашней работы',
+            'Отсутствует ключ: homework_name'
+        )
     homework_status = homework.get('status')
+    if homework_status is None:
+        raise KeyError(
+            'Отсутствуют данные о статусе домашней работы',
+            'Отсутствует ключ: status'
+        )
     if homework_status not in HOMEWORK_VERDICTS:
-        raise HomeWorkVerdictError
+        raise KeyError(
+            'Неожиданный статус домашней работы', homework_status
+        )
     verdict = HOMEWORK_VERDICTS[homework_status]
-    logging.debug('Статус получен - {verdict}')
+    logging.debug(f'Статус получен - {homework_status}')
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
@@ -142,25 +156,30 @@ def main():
     check_tokens()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     previous_message = None
+    timestamp = int(time.time())
     while True:
         try:
-            timestamp = int(time.time())
             response = get_api_answer(timestamp)
-            check_response(response)
-            try:
-                message = parse_status(response['homeworks'][0])
-            except (IndexError, KeyError):
-                message = 'Домашняя работа еще не была отправлена на проверку.'
-            except HomeWorkVerdictError:
-                message = 'Ошибка, неожиданный статус домашней работы.'
-            if message != previous_message:
+            homework = check_response(response)
+            if homework:
+                message = parse_status(homework[0])
                 send_message(bot, message)
-                previous_message = message
-            else:
-                logging.debug('Статус домашней работы не менялся')
+            timestamp = int(time.time())
+        except telegram.error.TelegramError as error:
+            logging.error(f'Ошибка при попытке отправить сообщение - {error}')
         except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            logging.error(message)
+            log_message = ' - '.join(error.args)
+            logging.error(log_message)
+            public_message = f'Сбой в работе программы: {error.args[0]}'
+            if public_message != previous_message:
+                try:
+                    send_message(bot, public_message)
+                    previous_message = public_message
+                except telegram.error.TelegramError:
+                    logging.error(
+                        f'Ошибка при попытке отправить сообщение - {error}',
+                        exc_info=True
+                    )
         finally:
             time.sleep(RETRY_PERIOD)
 
