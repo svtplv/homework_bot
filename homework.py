@@ -59,8 +59,8 @@ def send_message(bot, message):
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logging.debug('Сообщение отправлено успешно')
-    except telegram.error.TelegramError:
-        raise
+    except telegram.TelegramError as error:
+        logging.error(f'Ошибка при попытке отправить сообщение - {error}')
 
 
 def get_api_answer(timestamp):
@@ -77,8 +77,11 @@ def get_api_answer(timestamp):
             f'параметры - {payload}'
         )
         response = requests.get(ENDPOINT, headers=HEADERS, params=payload)
-    except ConnectionError('Ошибка при запросе к основному API'):
-        raise
+    except requests.RequestException as error:
+        raise ConnectionError(
+            'Ошибка при запросе к основному API',
+            f'Ошибка - {error}, endpoint - {ENDPOINT}, params = {payload}'
+        )
     if response.status_code != HTTPStatus.OK:
         raise ApiNotAvailable(
             f'API вернуло ответ, отличный от 200. '
@@ -115,8 +118,10 @@ def check_response(response):
     logging.debug('Проверка ключей в словаре: Успех')
     if not isinstance(response['homeworks'], list):
         raise TypeError(
-            PUBLIC_ERROR_MESSAGE,
-            f'Некорректный тип данных у словаря Д/З - {response["homeworks"]}'
+            PUBLIC_ERROR_MESSAGE, (
+                'Некорректный тип данных у словаря Д/З - '
+                f'{type(response["homeworks"])}'
+            )
         )
     logging.debug('Проверка типа данных по ключу homeworks: Успех')
     return response['homeworks']
@@ -165,22 +170,15 @@ def main():
                 message = parse_status(homework[0])
                 send_message(bot, message)
             else:
-                logging.debug('Статус домашнего задания не')
+                logging.debug('Статус домашнего задания не менялся')
             timestamp = int(time.time())
-        except telegram.error.TelegramError as error:
-            logging.error(f'Ошибка при попытке отправить сообщение - {error}')
         except Exception as error:
             log_message = ' - '.join(error.args)
             logging.error(log_message)
             public_message = f'Сбой в работе программы: {error.args[0]}'
             if public_message != previous_message:
-                try:
-                    send_message(bot, public_message)
-                    previous_message = public_message
-                except telegram.error.TelegramError:
-                    logging.error(
-                        f'Ошибка при попытке отправить сообщение - {error}'
-                    )
+                send_message(bot, public_message)
+                previous_message = public_message
         finally:
             time.sleep(RETRY_PERIOD)
 
